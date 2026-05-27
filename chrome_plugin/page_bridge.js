@@ -208,8 +208,9 @@
   }
 
   /**
-   * 重命名策略（模拟点击页面上的重命名按钮）
-   * 返回 Promise，等待 MutationObserver 检测到输入框并完成操作
+   * 重命名策略
+   * 聚宽策略名编辑：点击 h2.algo-title 显示 input#title-box，
+   * 修改值后触发 change + blur，再点击 body 失焦保存。
    */
   function renameStrategyName(newName) {
     return new Promise((resolve) => {
@@ -220,103 +221,66 @@
       }
       console.log(`[PageBridge] [RENAME] 尝试重命名为: '${newName}'`);
 
-      const h2 = document.querySelector('h2');
+      const h2 = document.querySelector('h2.algo-title') || document.querySelector('h2');
       if (!h2) {
         console.warn('[PageBridge] [RENAME] 未找到 h2 元素');
         resolve({ success: false, error: '未找到策略名元素' });
         return;
       }
 
-      const parent = h2.parentElement;
-      if (!parent) {
-        console.warn('[PageBridge] [RENAME] h2 无父元素');
-        resolve({ success: false, error: '未找到编辑按钮' });
-        return;
-      }
+      // 点击 h2 触发编辑模式
+      console.log('[PageBridge] [RENAME] 点击 h2 触发编辑');
+      h2.click();
 
-      // 查找 h2 附近的编辑按钮
-      const editBtn = parent.querySelector('i.el-icon-edit, i.icon-edit, button.edit-btn, .edit-icon, [title*="编辑"], [title*="重命名"], .rename-icon, .name-edit');
-      if (!editBtn) {
-        console.warn('[PageBridge] [RENAME] h2 父元素内未找到编辑按钮，降级为 DOM 修改');
-        h2.textContent = newName;
-        resolve({ success: true, method: 'dom-update', warning: '仅修改了前端展示，刷新后恢复' });
-        return;
-      }
-
-      console.log('[PageBridge] [RENAME] 找到编辑按钮，点击...');
-      editBtn.click();
-
-      // 使用 MutationObserver 等待输入框出现
-      const observer = new MutationObserver((mutations, obs) => {
-        const input = document.querySelector('input.strategy-name-input, .el-input__inner, input[type="text"], .rename-input');
-        if (input) {
-          obs.disconnect();
-          console.log('[PageBridge] [RENAME] 找到输入框，设置值...');
-
-          // 方式1: 直接设置 value + InputEvent
-          input.value = newName;
-          input.dispatchEvent(new InputEvent('input', { bubbles: true, data: newName }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-
-          // 方式2: 尝试通过 Vue 组件设置（Element UI / Vue 2）
-          const vueComp = input.__vue__ || (input._vnode && input._vnode.componentInstance);
-          if (vueComp) {
-            console.log('[PageBridge] [RENAME] 通过 Vue 组件设置值');
-            vueComp.$emit('input', newName);
-            if (vueComp.model && vueComp.model.callback) {
-              vueComp.model.callback(newName);
-            }
-          }
-
-          // 方式3: 使用 property descriptor 绕过 Vue 的 setter
-          try {
-            const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-            if (descriptor && descriptor.set) {
-              descriptor.set.call(input, newName);
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-          } catch (e) {
-            console.warn('[PageBridge] [RENAME] property descriptor 失败:', e);
-          }
-
-          // 等待确认按钮出现并点击
-          setTimeout(() => {
-            const confirmBtn = document.querySelector('button.el-button--primary, button.confirm, .save-btn, [class*="confirm"], .el-dialog__footer button');
-            if (confirmBtn) {
-              console.log('[PageBridge] [RENAME] 点击确认按钮');
-              confirmBtn.click();
-            } else {
-              console.log('[PageBridge] [RENAME] 未找到确认按钮，尝试回车');
-              input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-              input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
-            }
-
-            // 等待并检查结果
-            setTimeout(() => {
-              const currentName = document.querySelector('h2')?.textContent?.trim();
-              if (currentName === newName) {
-                console.log('[PageBridge] [RENAME] 重命名成功');
-                resolve({ success: true, method: 'edit-button', name: currentName });
-              } else {
-                console.warn(`[PageBridge] [RENAME] 重命名可能未保存，当前名称: '${currentName}'`);
-                resolve({ success: true, method: 'edit-button', warning: '操作已触发，但请确认页面是否已保存' });
-              }
-            }, 500);
-          }, 200);
-        }
-      });
-
-      observer.observe(document.body, { childList: true, subtree: true });
-
-      // 超时处理
+      // 等待 input 显示
       setTimeout(() => {
-        observer.disconnect();
-        const input = document.querySelector('input.strategy-name-input, .el-input__inner, input[type="text"]');
+        const input = document.querySelector('input#title-box, input.algo-title-box');
         if (!input) {
-          console.warn('[PageBridge] [RENAME] 超时：未找到输入框');
-          resolve({ success: false, error: '超时：未找到输入框' });
+          console.warn('[PageBridge] [RENAME] 未找到标题输入框，降级为 DOM 修改');
+          h2.textContent = newName;
+          resolve({ success: true, method: 'dom-update', warning: '仅修改了前端展示，刷新后恢复' });
+          return;
         }
-      }, 3000);
+
+        console.log('[PageBridge] [RENAME] 找到输入框，设置值...');
+        input.value = newName;
+
+        // 触发 change 事件（jQuery 兼容方式）
+        const changeEvt = document.createEvent('HTMLEvents');
+        changeEvt.initEvent('change', true, false);
+        input.dispatchEvent(changeEvt);
+
+        // 触发 blur
+        input.dispatchEvent(new Event('blur', { bubbles: true }));
+
+        // property descriptor 确保 Vue/jQuery 能感知
+        try {
+          const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+          if (descriptor && descriptor.set) {
+            descriptor.set.call(input, newName);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        } catch (e) {
+          console.warn('[PageBridge] [RENAME] property descriptor 失败:', e);
+        }
+
+        // 点击 body 让 input 失焦保存
+        setTimeout(() => {
+          document.body.click();
+
+          // 等待保存生效
+          setTimeout(() => {
+            const currentName = document.querySelector('h2.algo-title, h2')?.textContent?.trim();
+            if (currentName === newName) {
+              console.log('[PageBridge] [RENAME] 重命名成功');
+              resolve({ success: true, method: 'h2-edit', name: currentName });
+            } else {
+              console.warn(`[PageBridge] [RENAME] 重命名可能未保存，当前名称: '${currentName}'`);
+              resolve({ success: true, method: 'h2-edit', warning: '操作已触发，但请确认页面是否已保存' });
+            }
+          }, 600);
+        }, 400);
+      }, 400);
     });
   }
 

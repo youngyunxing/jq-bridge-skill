@@ -1028,46 +1028,6 @@ function showStatus(text) {
   elements.strategyInfo.innerHTML = text;
 }
 
-async function compileStrategy() {
-  try {
-    showStatus('🔄 正在触发编译...');
-    const success = await sendMessageToParent({ action: 'clickCompile' });
-    if (success) {
-      showStatus('✅ 编译已触发');
-    } else {
-      showStatus('❌ 编译触发失败');
-    }
-  } catch (error) {
-    _sidebar_logErr('编译失败:', error);
-    showStatus('❌ 编译失败: ' + error.message);
-  }
-}
-
-async function pullResults() {
-  try {
-    showStatus('🔄 正在获取回测结果...');
-    const result = await getBacktestResultsFromPage();
-    if (!result || Object.keys(result).length === 0) {
-      showStatus('⚠️ 暂无回测结果');
-      return;
-    }
-    // 格式化为可读文本
-    const lines = [];
-    if (result.totalReturns !== undefined) lines.push(`总收益: ${result.totalReturns}`);
-    if (result.annualizedReturns !== undefined) lines.push(`年化收益: ${result.annualizedReturns}`);
-    if (result.maxDrawdown !== undefined) lines.push(`最大回撤: ${result.maxDrawdown}`);
-    if (result.sharpe !== undefined) lines.push(`Sharpe: ${result.sharpe}`);
-    if (result.beta !== undefined) lines.push(`Beta: ${result.beta}`);
-    if (result.alpha !== undefined) lines.push(`Alpha: ${result.alpha}`);
-    const text = lines.join('\n');
-    downloadTextAsFile(text, 'backtest_results.txt');
-    showStatus(`✅ 结果已下载 (${lines.length} 项指标)`);
-  } catch (error) {
-    _sidebar_logErr('获取结果失败:', error);
-    showStatus('❌ 获取结果失败: ' + error.message);
-  }
-}
-
 function extractCategories() {
   const categories = new Set();
   for (const s of STRATEGIES_CONFIG.strategies) {

@@ -221,33 +221,21 @@ function isUIElement(text) {
 async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
   const seenLines = new Map();
 
-  function collectLogs(label) {
+  function collectLogs() {
     const selectors = ['.log-line', '.log-item', '.line', '.log-row', '#log > pre > p', 'p', '.output-line'];
     let lines;
-    let matchedSelector = null;
     for (const selector of selectors) {
       lines = contentContainer.querySelectorAll(selector);
-      if (lines.length > 0) {
-        matchedSelector = selector;
-        break;
-      }
+      if (lines.length > 0) break;
     }
-    const isFallback = !lines || lines.length === 0;
-    if (isFallback) lines = contentContainer.children;
+    if (!lines || lines.length === 0) lines = contentContainer.children;
 
-    let newCount = 0;
-    const newTexts = [];
     for (const line of lines) {
       const text = (line.innerText || line.textContent || '').trim();
       if (text && text.length > 5 && !seenLines.has(text)) {
         seenLines.set(text, true);
-        newCount++;
-        if (newTexts.length < 5) {
-          newTexts.push(text.substring(0, 60));
-        }
       }
     }
-
   }
 
   // 阶段1: 反复滚动到底部触发加载
@@ -259,7 +247,7 @@ async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
     const beforeCount = seenLines.size;
     scrollContainer.scrollTop = scrollContainer.scrollHeight;
     await sleep(150);
-    collectLogs(`阶段1#${scrollAttempts + 1}`);
+    collectLogs();
 
     const currentScrollHeight = scrollContainer.scrollHeight;
     if (seenLines.size > beforeCount || currentScrollHeight > lastScrollHeight + 10) {
@@ -274,7 +262,7 @@ async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
   // 阶段2: 逐步向上滚动确保收集完整
   scrollContainer.scrollTop = 0;
   await sleep(200);
-  collectLogs('阶段2-顶部');
+  collectLogs();
 
   const scrollStep = Math.max(scrollContainer.clientHeight * 0.8, 100);
   let currentScroll = 0;
@@ -285,7 +273,7 @@ async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
     currentScroll += scrollStep;
     scrollContainer.scrollTop = Math.min(currentScroll, scrollContainer.scrollHeight);
     await sleep(100);
-    collectLogs(`阶段2-向上#${upwardAttempts + 1}`);
+    collectLogs();
 
     if (scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50) {
       break;
@@ -293,9 +281,7 @@ async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
     upwardAttempts++;
   }
 
-  const allLines = Array.from(seenLines.keys());
-
-  return allLines.join('\n');
+  return Array.from(seenLines.keys()).join('\n');
 }
 
 /**
