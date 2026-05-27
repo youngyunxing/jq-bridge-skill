@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment
+.env
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Bridge runtime
+.jquan-bridge/
+
+# Node
+node_modules/
+package-lock.json
+
+# Claude Code
+.claude/settings.local.json
+
+# 策略代码（skill 只包含工具，不含策略）
+strategies/

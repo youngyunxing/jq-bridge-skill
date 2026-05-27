@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>聚宽策略助手</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div class="sidebar-container">
+    <!-- 头部工具栏 -->
+    <header class="sidebar-header">
+      <div class="header-left">
+        <span class="logo">策略助手</span>
+        <span class="version" id="versionInfo"></span>
+      </div>
+      <div class="header-right">
+        <span class="ws-status" id="wsStatus" title="连接状态">⚪</span>
+        <span class="code-status" id="codeStatus">--行</span>
+      </div>
+    </header>
+
+    <!-- 操作按钮 -->
+    <div class="toolbar-row">
+      <button class="btn-icon" id="refreshCodeBtn" title="刷新代码">🔄</button>
+      <button class="btn-icon" id="saveBtn" title="保存到本地">💾</button>
+      <button class="btn-icon" id="pullLogsBtn" title="拉取日志">📋</button>
+    </div>
+
+    <!-- 保存表单 -->
+    <div class="save-area" id="saveArea" style="display: none;">
+      <div class="save-row">
+        <select id="saveCategorySelect" class="strategy-select">
+          <option value="">选择分类...</option>
+        </select>
+      </div>
+      <div class="save-row">
+        <input type="text" id="saveNameInput" class="save-input" placeholder="策略名">
+      </div>
+      <div class="save-actions">
+        <button id="confirmSaveBtn" class="btn-sync">保存</button>
+        <button id="cancelSaveBtn" class="btn-sync btn-secondary">取消</button>
+      </div>
+    </div>
+
+    <!-- 日志保存表单 -->
+    <div class="save-area" id="logSaveArea" style="display: none;">
+      <div class="save-row">
+        <select id="logSaveDirSelect" class="strategy-select">
+          <option value="">选择策略目录...</option>
+        </select>
+      </div>
+      <div class="save-row">
+        <span class="log-filename" id="logFileName"></span>
+      </div>
+      <div class="save-actions">
+        <button id="confirmLogSaveBtn" class="btn-sync">保存日志</button>
+        <button id="cancelLogSaveBtn" class="btn-sync btn-secondary">取消</button>
+      </div>
+    </div>
+
+    <!-- 策略同步 -->
+    <div class="strategy-sync-area">
+      <select id="strategySelect" class="strategy-select">
+        <option value="">选择本地策略...</option>
+      </select>
+      <button id="syncStrategyBtn" class="btn-sync" disabled>同步到编辑器</button>
+    </div>
+    <div class="strategy-info" id="strategyInfo"></div>
+  </div>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

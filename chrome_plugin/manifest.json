@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "聚宽策略助手",
+  "version": "1.0.53",
+  "description": "聚宽策略开发辅助工具，支持本地策略同步到编辑器、获取回测日志",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.joinquant.com/algorithm/index/edit*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.joinquant.com/algorithm/index/edit*"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "sidebar/sidebar.html",
+        "sidebar/sidebar.css",
+        "sidebar/sidebar.js",
+        "page_bridge.js"
+      ],
+      "matches": [
+        "https://www.joinquant.com/*"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,339 @@
+/* 聚宽策略助手 - 侧边栏样式 (Expo Design System) */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Expo Color Tokens */
+  --primary: #000000;
+  --primary-active: #1a1a1a;
+  --on-primary: #ffffff;
+
+  --ink: #171717;
+  --body: #60646c;
+  --body-strong: #171717;
+  --muted: #999999;
+  --muted-soft: #cccccc;
+
+  --canvas: #ffffff;
+  --canvas-soft: #fafafa;
+  --surface-strong: #f0f0f3;
+
+  --hairline: #f0f0f3;
+  --hairline-soft: #f5f5f7;
+  --hairline-strong: #dcdee0;
+
+  --text-link: #0d74ce;
+  --semantic-success: #16a34a;
+  --semantic-error: #eb8e90;
+
+  /* Spacing */
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-base: 16px;
+  --space-md: 20px;
+  --space-lg: 24px;
+}
+
+body {
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  height: auto;
+  min-height: 100vh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sidebar-container {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  min-height: 100vh;
+}
+
+/* 头部 — clean white bar */
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px var(--space-base);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+  height: 48px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.logo {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.version {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface-strong);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* Status badge */
+.ws-status {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  cursor: default;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.ws-status.connected {
+  background: var(--semantic-success);
+  color: var(--on-primary);
+}
+
+.code-status {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* Icon buttons — workflow-step-icon style */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-strong);
+  border: none;
+  cursor: pointer;
+  font-size: 17px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  transition: background 0.2s ease, transform 0.1s ease;
+  color: var(--ink);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.btn-icon:hover {
+  background: var(--hairline-strong);
+}
+
+.btn-icon:active {
+  transform: scale(0.95);
+}
+
+/* 操作按钮行 */
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-base);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+
+/* 保存表单 — canvas-soft surface */
+.save-area {
+  padding: var(--space-sm) var(--space-base);
+  background: var(--canvas-soft);
+  border-bottom: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+
+.save-row {
+  display: flex;
+  margin-bottom: var(--space-xs);
+}
+
+.save-row:last-child {
+  margin-bottom: 0;
+}
+
+/* text-input 规范 */
+.save-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  background: var(--canvas);
+  color: var(--ink);
+  outline: none;
+  height: 44px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.save-input:focus {
+  border: 2px solid var(--ink);
+  padding: 9px 13px;
+}
+
+.save-input::placeholder {
+  color: var(--muted);
+}
+
+.save-actions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+/* Primary button — pure black, rounded md (8px) */
+.btn-sync {
+  padding: 9px 17px;
+  background: var(--primary);
+  color: var(--on-primary);
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.0;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+  white-space: nowrap;
+  height: 40px;
+}
+
+.btn-sync:hover:not(:disabled) {
+  background: var(--primary-active);
+}
+
+.btn-sync:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.btn-sync:disabled {
+  background: var(--hairline);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* Secondary button — white card with hairline border */
+.btn-secondary {
+  background: var(--canvas);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--canvas-soft);
+}
+
+.log-filename {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+/* 策略同步 */
+.strategy-sync-area {
+  padding: var(--space-sm) var(--space-base);
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Select — same input treatment */
+.strategy-select {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  background: var(--canvas);
+  color: var(--ink);
+  cursor: pointer;
+  outline: none;
+  height: 44px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23999999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.strategy-select:hover {
+  border-color: var(--hairline-strong);
+}
+
+.strategy-select:focus {
+  border: 2px solid var(--ink);
+  padding: 9px 13px;
+  padding-right: 31px;
+}
+
+.strategy-info {
+  padding: var(--space-xs) var(--space-base) var(--space-sm);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--muted);
+  min-height: 20px;
+  flex-shrink: 0;
+}
+
+.strategy-info .success {
+  color: var(--semantic-success);
+}
+
+.strategy-info .error {
+  color: #d45656;
+}
+
+/* 滚动条 — minimal */
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
