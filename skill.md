@@ -76,20 +76,6 @@ python bridge/jq_cli.py status
 
 分析输出中的连接页面数、策略名、algorithmId 等信息。
 
-## 策略规范（执行 push 前检查）
-
-推送代码前应提醒用户或自动检查以下规范：
-
-- 文件顶部必须有 `__version__ = "x.x.x"`
-- 自定义函数统一加 `yy_` 前缀，防止与聚宽 API 重名
-- 全局变量用 `g.xxx`，**禁止** `context.g.xxx`
-- 买卖数量必须为 **100 的整数倍**
-- 买入/卖出时必须打印：股票代码、名称、价格、数量
-- `initialize()` 中应包含：基准、滑点、手续费、避免未来数据等基础配置
-- 盘中获取历史数据时，`end_date` 必须使用 `context.previous_date`（非当天）
-- 避免 `df.append()`（pandas 2.0+ 已移除），改用 `pd.concat([df, temp_df])`
-- 避免 `pd.concat(..., sort=False)`（聚宽旧版 pandas 不支持 `sort` 参数）
-
 ## 常见问题
 
 | 现象 | 原因 | 处理 |
