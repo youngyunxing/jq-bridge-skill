@@ -83,8 +83,7 @@ python ~/.claude/skills/jq-bridge/bridge/jq_bridge.py start
 |------|------|------|
 | `push <file>` | 推送本地策略到编辑器 | `push strategies/我的策略/main.py` |
 | `compile` | 触发编译运行 | `compile --name "羊驼策略"` |
-| `pull logs` | 拉取回测日志 | `pull logs --name "羊驼策略"` |
-| `pull errors` | 拉取报错/Traceback | `pull errors --name "羊驼策略"` |
+| `pull logs` | 拉取回测日志（自动包含错误信息） | `pull logs --name "羊驼策略"` |
 | `pull results` | 拉取回测结果 | `pull results --name "羊驼策略"` |
 | `status` | 查看页面连接状态 | `status` |
 | `params` | 设置回测参数 | `params --start 2024-01-01 --end 2024-12-31 --cash 100000` |
@@ -105,16 +104,16 @@ python ~/.claude/skills/jq-bridge/bridge/jq_bridge.py start
 2. python bridge/jq_cli.py push <文件路径> [--name <策略名>]
 3. python bridge/jq_cli.py compile [--name <策略名>]
 4. 等待 10-15 秒
-5. python bridge/jq_cli.py pull errors [--name <策略名>]
-6. 无错误则：python bridge/jq_cli.py pull logs [--name <策略名>]
-7. 向用户汇报结果
+5. python bridge/jq_cli.py pull logs [--name <策略名>]
+   （自动同时拉取日志和错误信息）
+6. 向用户汇报结果
 ```
 
 ### 2. 排查错误
 
 当用户说"看看报什么错了"时：
 
-1. `pull errors` 获取报错信息
+1. `pull logs` 获取日志（自动包含错误信息）
 2. 分析错误类型：
    - **SyntaxError / IndentationError**：Python 语法问题
    - **NameError**：变量/API 未定义（如 `get_factor_values` 不存在）
@@ -154,7 +153,7 @@ python bridge/jq_cli.py params \
 | "未找到目标页面" | 策略名不匹配或页面未连接 | `status` 查看已连接页面，确认名称 |
 | push 成功但代码未更新 | 聚宽页面缓存 | 刷新页面后重新 push |
 | compile 后无日志/结果 | 回测尚未完成或插件未捕获 | 等待更长时间；检查插件是否已重新加载 |
-| pull errors 返回空但有报错 | 插件 DOM 选择器未匹配 | 更新插件后重新加载扩展 |
+| pull logs 显示空但有报错 | 插件 DOM 选择器未匹配 | 更新插件后重新加载扩展 |
 | WebSocket 连接失败 | 桥接服务未启动 | `python bridge/jq_bridge.py start` |
 | 插件显示未连接 | 页面未注入或桥接服务未启动 | 刷新页面，确认服务状态 |
 | 重命名后刷新恢复原名 | 仅修改了前端 DOM，未保存到后端 | 目前需手动在页面上保存策略名 |

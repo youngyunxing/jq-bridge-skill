@@ -19,8 +19,7 @@
 |------|------|
 | `push <file>` | 推送本地策略代码到聚宽编辑器 |
 | `compile` | 触发编译运行（回测） |
-| `pull logs` | 拉取回测日志 |
-| `pull errors` | 拉取回测错误/Traceback |
+| `pull logs` | 拉取回测日志（自动包含错误信息） |
 | `pull results` | 拉取回测结果（JSON） |
 | `status` | 查看页面连接状态 |
 | `params --start YYYY-MM-DD --end YYYY-MM-DD --cash 100000` | 设置回测参数 |
@@ -40,16 +39,16 @@
 2. **推送代码**：`python bridge/jq_cli.py push <文件路径> --name <策略名>`
 3. **触发编译**：`python bridge/jq_cli.py compile --name <策略名>`
 4. **等待回测完成**：等待 10-15 秒（或轮询 `status` 查看回测状态）
-5. **拉取结果**：
-   - 先尝试 `python bridge/jq_cli.py pull errors --name <策略名>`，如果有错误则汇报
-   - 无错误则 `python bridge/jq_cli.py pull logs --name <策略名>`，分析日志中的收益率、交易记录等
+5. **拉取结果**：`python bridge/jq_cli.py pull logs --name <策略名>`
+   - 自动同时拉取回测日志和错误信息
+   - 分析日志中的收益率、交易记录等；如有错误会自动追加显示
 6. **向用户汇报**：总结回测结果或错误信息
 
 ### 2. 排查错误
 
 当用户说"看看报什么错了"或"排查错误"时：
 
-1. `python bridge/jq_cli.py pull errors --name <策略名>`
+1. `python bridge/jq_cli.py pull logs --name <策略名>`（自动包含错误信息）
 2. 分析错误类型：
    - **SyntaxError / IndentationError**：Python 语法问题，指出具体行号
    - **NameError**：变量/API 未定义，检查拼写或是否需额外导入（如 `get_factor_values` 不存在时应改用基础 API）
@@ -98,6 +97,7 @@ python bridge/jq_cli.py status
 | "未找到目标页面" | 策略名不匹配或页面未连接 | 检查 `status` 输出，确认策略名或 algorithmId |
 | push 成功但代码未更新 | 聚宽页面缓存 | 刷新页面或重新 push |
 | compile 后无日志 | 回测尚未完成或插件未捕获 | 等待更长时间再 pull logs；更新插件后重新加载扩展 |
+| pull logs 显示空但有报错 | 插件 DOM 选择器未匹配 | 更新插件后重新加载扩展 |
 | WebSocket 连接失败 | 桥接服务未启动 | 先执行 `python bridge/jq_bridge.py start` |
 | 插件显示未连接 | 页面未注入或桥接服务未启动 | 刷新页面，确认服务状态 |
 | 重命名后刷新恢复原名 | 仅修改了前端 DOM，未保存到后端 | 目前需手动在页面上保存策略名 |
