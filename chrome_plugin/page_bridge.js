@@ -337,46 +337,80 @@
 
   /**
    * 获取回测错误信息（编译/运行时错误）
+   * 不再严格区分正常/错误，尽量拉取所有内容
    */
   function getBacktestErrors() {
     const errors = [];
 
-    // 方法1: 查找错误提示元素
+    // 方法1: 查找错误提示元素（增加更多选择器）
     const errorSelectors = [
-      '.error', '.compile-error', '.el-message--error',
-      '.backtest-error', '.result-error', '.log-error'
+      '.error', '.compile-error', '.el-message--error', '.el-message--warning',
+      '.backtest-error', '.result-error', '.log-error', '.runtime-error',
+      '.ant-message-error', '.ant-notification-notice', '.toast-error',
+      '[class*="error"]', '[class*="Error"]'
     ];
     for (const sel of errorSelectors) {
-      const el = document.querySelector(sel);
-      if (el && el.innerText.trim() && el.innerText.trim().length > 2) {
-        errors.push(el.innerText.trim());
+      const els = document.querySelectorAll(sel);
+      for (const el of els) {
+        const text = (el.innerText || '').trim();
+        if (text && text.length > 2 && text.length < 5000) {
+          errors.push(text);
+        }
       }
     }
 
-    // 方法2: 从结果面板文本中匹配 Traceback / Error
-    const panel = document.querySelector('#dailybars-results, .backtest-result-panel, .result-panel');
-    if (panel) {
-      const text = panel.innerText || '';
-      if (/Traceback|AttributeError|SyntaxError|TypeError|NameError|ImportError|RuntimeError|KeyError/.test(text)) {
-        const match = text.match(/(Traceback[\s\S]*?)(?=\n\n\n|$)/);
-        if (match) errors.push(match[0].trim());
+    // 方法2: 从结果面板文本中匹配 Traceback / Error / 异常
+    const panelSelectors = [
+      '#dailybars-results', '.backtest-result-panel', '.result-panel',
+      '#output-pane', '.output-pane', '[class*="result"]'
+    ];
+    for (const sel of panelSelectors) {
+      const panel = document.querySelector(sel);
+      if (panel) {
+        const text = panel.innerText || '';
+        // 匹配 Traceback
+        if (/Traceback|AttributeError|SyntaxError|TypeError|NameError|ImportError|RuntimeError|KeyError|IndexError|ValueError|ModuleNotFoundError|Exception/.test(text)) {
+          const match = text.match(/(Traceback[\s\S]*?)(?=\n\n\n|$)/);
+          if (match) errors.push(match[0].trim());
+        }
+        // 匹配中文报错
+        if (/报错|错误|失败|异常|无法|不能/.test(text) && text.length > 20 && text.length < 3000) {
+          errors.push(text.trim());
+        }
+        break; // 只取第一个匹配的面板
       }
     }
 
-    // 方法3: 从日志区域提取 Python 错误
-    const logsTab = document.querySelector('#daily-logs-tab, .log-container, .log-area');
-    if (logsTab) {
-      const text = logsTab.innerText || '';
-      const errorMatches = text.match(/Traceback \(most recent call last\):[\s\S]*?(?=\n\n\n|\n\d{4}-\d{2}-\d{2}|$)/g);
-      if (errorMatches) {
-        errors.push(...errorMatches);
+    // 方法3: 从日志区域提取 Python 错误和中文报错
+    const logSelectors = [
+      '#daily-logs-tab', '.log-container', '.log-area', '.console-output',
+      '#daily-logs-container', '[class*="log"]', '[class*="console"]'
+    ];
+    for (const sel of logSelectors) {
+      const logsTab = document.querySelector(sel);
+      if (logsTab) {
+        const text = logsTab.innerText || '';
+        // 匹配 Traceback
+        const errorMatches = text.match(/Traceback \(most recent call last\):[\s\S]*?(?=\n\n\n|\n\d{4}-\d{2}-\d{2}|$)/g);
+        if (errorMatches) {
+          errors.push(...errorMatches);
+        }
+        // 匹配普通 Error 行
+        const lineMatches = text.match(/.*?(Error|Exception|SyntaxError|TypeError|NameError|AttributeError|ImportError|RuntimeError|KeyError|IndexError|ValueError|ModuleNotFoundError):.*/g);
+        if (lineMatches) {
+          errors.push(...lineMatches);
+        }
+        break; // 只取第一个匹配的日志容器
       }
     }
+
+    // 去重
+    const uniqueErrors = [...new Set(errors)];
 
     return {
-      hasError: errors.length > 0,
-      errors: errors,
-      count: errors.length
+      hasError: uniqueErrors.length > 0,
+      errors: uniqueErrors,
+      count: uniqueErrors.length
     };
   }
 

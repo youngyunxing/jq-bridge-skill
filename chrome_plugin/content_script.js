@@ -190,10 +190,11 @@ async function appendEditorCode(code) {
 }
 
 /**
- * 判断文本是否是有效的日志内容（而非UI元素）
+ * 判断文本是否是明显的UI元素（而非日志内容）
+ * 返回 true 表示是UI元素，应排除；返回 false 表示可能是日志
  */
-function isValidLogContent(text) {
-  if (!text || text.length < 50) return false;
+function isUIElement(text) {
+  if (!text) return true;
 
   // 排除明显的UI元素文本
   const uiKeywords = [
@@ -205,14 +206,10 @@ function isValidLogContent(text) {
   ];
 
   for (const keyword of uiKeywords) {
-    if (text.includes(keyword)) return false;
+    if (text.includes(keyword)) return true;
   }
 
-  // 检查是否包含日志特征（时间戳格式）
-  const hasTimestamp = /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/.test(text);
-  const hasLogLevel = /\s*-\s*(INFO|DEBUG|WARN|WARNING|ERROR)\s*-\s*/.test(text);
-
-  return hasTimestamp || hasLogLevel;
+  return false;
 }
 
 /**
@@ -324,11 +321,26 @@ async function getBacktestLogs() {
       };
     }
 
-    // 备选：查找其他日志容器
-    const selectors = ['#daily-logs-tab', '.log-container', '.backtest-log', '.console-output'];
+    // 备选：查找其他日志容器（尽量获取所有内容，不再区分正常/错误）
+    const selectors = [
+      '#daily-logs-tab',
+      '.log-container',
+      '.backtest-log',
+      '.console-output',
+      '#output-pane',
+      '#result-pane',
+      '.result-panel',
+      '.backtest-result-panel',
+      '[class*="log"]',
+      '[class*="console"]',
+      '[class*="output"]'
+    ];
     for (const selector of selectors) {
       const el = document.querySelector(selector);
-      if (el && isValidLogContent(el.innerText)) {
+      if (!el) continue;
+      const text = el.innerText || '';
+      // 只要不是纯UI元素，就尝试获取
+      if (!isUIElement(text) && text.trim().length > 10) {
         if (el.scrollHeight > el.clientHeight + 50) {
           return {
             logs: await autoScrollAndCollectLogs(el, el),
@@ -337,7 +349,7 @@ async function getBacktestLogs() {
         }
         // 无滚动条但内容多，直接获取
         return {
-          logs: el.innerText.trim(),
+          logs: text.trim(),
           debugInfo: { source: selector, direct: true }
         };
       }
