@@ -11,7 +11,7 @@
 
 ## 可用命令
 
-所有命令通过 `python bridge/jq_cli.py` 执行，项目根目录为 skill 安装目录。
+所有命令通过 `python bridge/jq_cli.py` 执行。桥接服务会自动向上查找包含 `strategies/` 目录的项目根目录，因此 CLI 可以在策略项目的任意子目录下运行。
 
 ### 核心命令
 
@@ -39,7 +39,7 @@
 1. **确定策略文件**：询问或确认用户要推送的 `.py` 文件路径
 2. **推送代码**：`python bridge/jq_cli.py push <文件路径> --name <策略名>`
 3. **触发编译**：`python bridge/jq_cli.py compile --name <策略名>`
-4. **等待回测完成**：等待 15-30 秒（或轮询 `status` 查看回测状态）
+4. **等待回测完成**：等待 10-15 秒（或轮询 `status` 查看回测状态）
 5. **拉取结果**：
    - 先尝试 `python bridge/jq_cli.py pull errors --name <策略名>`，如果有错误则汇报
    - 无错误则 `python bridge/jq_cli.py pull logs --name <策略名>`，分析日志中的收益率、交易记录等
@@ -52,10 +52,11 @@
 1. `python bridge/jq_cli.py pull errors --name <策略名>`
 2. 分析错误类型：
    - **SyntaxError / IndentationError**：Python 语法问题，指出具体行号
-   - **NameError**：变量未定义，检查拼写或初始化
+   - **NameError**：变量/API 未定义，检查拼写或是否需额外导入（如 `get_factor_values` 不存在时应改用基础 API）
    - **KeyError / IndexError**：数据访问越界，检查 DataFrame 字段
    - **聚宽 API 错误**：检查 API 入参格式
    - **avoid_future_data 报错**：盘中获取日线数据时 `end_date` 用了当天日期，应改为 `context.previous_date`
+   - **pandas 兼容性问题**：`df.append()` 已移除改用 `pd.concat()`；`pd.concat(..., sort=False)` 旧版不支持
 3. 给出修复建议
 
 ### 3. 设置回测参数
@@ -81,12 +82,14 @@ python bridge/jq_cli.py status
 推送代码前应提醒用户或自动检查以下规范：
 
 - 文件顶部必须有 `__version__ = "x.x.x"`
-- 自定义函数统一加 `jq_` 前缀
+- 自定义函数统一加 `jq_` 前缀，防止与聚宽 API 重名
 - 全局变量用 `g.xxx`，**禁止** `context.g.xxx`
 - 买卖数量必须为 **100 的整数倍**
 - 买入/卖出时必须打印：股票代码、名称、价格、数量
 - `initialize()` 中应包含：基准、滑点、手续费、避免未来数据等基础配置
 - 盘中获取历史数据时，`end_date` 必须使用 `context.previous_date`（非当天）
+- 避免 `df.append()`（pandas 2.0+ 已移除），改用 `pd.concat([df, temp_df])`
+- 避免 `pd.concat(..., sort=False)`（聚宽旧版 pandas 不支持 `sort` 参数）
 
 ## 常见问题
 
@@ -94,9 +97,10 @@ python bridge/jq_cli.py status
 |------|------|------|
 | "未找到目标页面" | 策略名不匹配或页面未连接 | 检查 `status` 输出，确认策略名或 algorithmId |
 | push 成功但代码未更新 | 聚宽页面缓存 | 刷新页面或重新 push |
-| compile 后无日志 | 回测尚未完成 | 等待更长时间再 pull logs |
+| compile 后无日志 | 回测尚未完成或插件未捕获 | 等待更长时间再 pull logs；更新插件后重新加载扩展 |
 | WebSocket 连接失败 | 桥接服务未启动 | 先执行 `python bridge/jq_bridge.py start` |
 | 插件显示未连接 | 页面未注入或桥接服务未启动 | 刷新页面，确认服务状态 |
+| 重命名后刷新恢复原名 | 仅修改了前端 DOM，未保存到后端 | 目前需手动在页面上保存策略名 |
 
 ## 环境变量
 
