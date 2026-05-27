@@ -209,70 +209,115 @@
 
   /**
    * 重命名策略（模拟点击页面上的重命名按钮）
+   * 返回 Promise，等待 MutationObserver 检测到输入框并完成操作
    */
   function renameStrategyName(newName) {
-    if (!newName) {
-      console.warn('[PageBridge] [RENAME] [ERR] 名称不能为空');
-      return { success: false, error: '名称不能为空' };
-    }
-    console.log(`[PageBridge] [RENAME] 尝试重命名为: '${newName}'`);
-
-    // 策略1: 找到 h2 旁边的编辑按钮/图标
-    const h2 = document.querySelector('h2');
-    if (h2) {
-      console.log(`[PageBridge] [RENAME] 找到 h2, 当前文本: '${h2.textContent.trim()}'`);
-      // 查找 h2 附近的编辑按钮（可能是 pencil 图标或 edit 按钮）
-      const parent = h2.parentElement;
-      if (parent) {
-        const editBtn = parent.querySelector('i.el-icon-edit, i.icon-edit, button.edit-btn, .edit-icon, [title*="编辑"], [title*="重命名"]');
-        if (editBtn) {
-          console.log('[PageBridge] [RENAME] 找到编辑按钮，点击...');
-          editBtn.click();
-          // 等待输入框出现
-          setTimeout(() => {
-            const input = document.querySelector('input.strategy-name-input, .el-input__inner, input[type="text"]');
-            if (input) {
-              console.log('[PageBridge] [RENAME] 找到输入框，设置值...');
-              input.value = newName;
-              input.dispatchEvent(new Event('input', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-              // 触发回车确认
-              setTimeout(() => {
-                const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true });
-                input.dispatchEvent(enterEvent);
-                // 或者查找确认按钮
-                const confirmBtn = document.querySelector('button.el-button--primary, button.confirm, .save-btn');
-                if (confirmBtn) {
-                  console.log('[PageBridge] [RENAME] 点击确认按钮');
-                  confirmBtn.click();
-                } else {
-                  console.warn('[PageBridge] [RENAME] 未找到确认按钮');
-                }
-              }, 100);
-            } else {
-              console.warn('[PageBridge] [RENAME] 未找到输入框');
-            }
-          }, 300);
-          return { success: true, method: 'edit-button' };
-        } else {
-          console.warn('[PageBridge] [RENAME] h2 父元素内未找到编辑按钮');
-        }
+    return new Promise((resolve) => {
+      if (!newName) {
+        console.warn('[PageBridge] [RENAME] [ERR] 名称不能为空');
+        resolve({ success: false, error: '名称不能为空' });
+        return;
       }
-    } else {
-      console.warn('[PageBridge] [RENAME] 未找到 h2 元素');
-    }
+      console.log(`[PageBridge] [RENAME] 尝试重命名为: '${newName}'`);
 
-    // 策略2: 直接修改 h2 的文本（前端展示层，不会保存到后端）
-    // 但这至少能让 page_bridge.js 读取到新名称
-    if (h2) {
-      console.log('[PageBridge] [RENAME] 降级: 直接修改 h2 文本');
-      h2.textContent = newName;
-      h2.dispatchEvent(new Event('input', { bubbles: true }));
-      return { success: true, method: 'dom-update', warning: '仅修改了前端展示，请手动在页面上保存策略名' };
-    }
+      const h2 = document.querySelector('h2');
+      if (!h2) {
+        console.warn('[PageBridge] [RENAME] 未找到 h2 元素');
+        resolve({ success: false, error: '未找到策略名元素' });
+        return;
+      }
 
-    console.error('[PageBridge] [RENAME] [ERR] 未找到策略名编辑元素');
-    return { success: false, error: '未找到策略名编辑元素' };
+      const parent = h2.parentElement;
+      if (!parent) {
+        console.warn('[PageBridge] [RENAME] h2 无父元素');
+        resolve({ success: false, error: '未找到编辑按钮' });
+        return;
+      }
+
+      // 查找 h2 附近的编辑按钮
+      const editBtn = parent.querySelector('i.el-icon-edit, i.icon-edit, button.edit-btn, .edit-icon, [title*="编辑"], [title*="重命名"], .rename-icon, .name-edit');
+      if (!editBtn) {
+        console.warn('[PageBridge] [RENAME] h2 父元素内未找到编辑按钮，降级为 DOM 修改');
+        h2.textContent = newName;
+        resolve({ success: true, method: 'dom-update', warning: '仅修改了前端展示，刷新后恢复' });
+        return;
+      }
+
+      console.log('[PageBridge] [RENAME] 找到编辑按钮，点击...');
+      editBtn.click();
+
+      // 使用 MutationObserver 等待输入框出现
+      const observer = new MutationObserver((mutations, obs) => {
+        const input = document.querySelector('input.strategy-name-input, .el-input__inner, input[type="text"], .rename-input');
+        if (input) {
+          obs.disconnect();
+          console.log('[PageBridge] [RENAME] 找到输入框，设置值...');
+
+          // 方式1: 直接设置 value + InputEvent
+          input.value = newName;
+          input.dispatchEvent(new InputEvent('input', { bubbles: true, data: newName }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+
+          // 方式2: 尝试通过 Vue 组件设置（Element UI / Vue 2）
+          const vueComp = input.__vue__ || (input._vnode && input._vnode.componentInstance);
+          if (vueComp) {
+            console.log('[PageBridge] [RENAME] 通过 Vue 组件设置值');
+            vueComp.$emit('input', newName);
+            if (vueComp.model && vueComp.model.callback) {
+              vueComp.model.callback(newName);
+            }
+          }
+
+          // 方式3: 使用 property descriptor 绕过 Vue 的 setter
+          try {
+            const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+            if (descriptor && descriptor.set) {
+              descriptor.set.call(input, newName);
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          } catch (e) {
+            console.warn('[PageBridge] [RENAME] property descriptor 失败:', e);
+          }
+
+          // 等待确认按钮出现并点击
+          setTimeout(() => {
+            const confirmBtn = document.querySelector('button.el-button--primary, button.confirm, .save-btn, [class*="confirm"], .el-dialog__footer button');
+            if (confirmBtn) {
+              console.log('[PageBridge] [RENAME] 点击确认按钮');
+              confirmBtn.click();
+            } else {
+              console.log('[PageBridge] [RENAME] 未找到确认按钮，尝试回车');
+              input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+              input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+            }
+
+            // 等待并检查结果
+            setTimeout(() => {
+              const currentName = document.querySelector('h2')?.textContent?.trim();
+              if (currentName === newName) {
+                console.log('[PageBridge] [RENAME] 重命名成功');
+                resolve({ success: true, method: 'edit-button', name: currentName });
+              } else {
+                console.warn(`[PageBridge] [RENAME] 重命名可能未保存，当前名称: '${currentName}'`);
+                resolve({ success: true, method: 'edit-button', warning: '操作已触发，但请确认页面是否已保存' });
+              }
+            }, 500);
+          }, 200);
+        }
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      // 超时处理
+      setTimeout(() => {
+        observer.disconnect();
+        const input = document.querySelector('input.strategy-name-input, .el-input__inner, input[type="text"]');
+        if (!input) {
+          console.warn('[PageBridge] [RENAME] 超时：未找到输入框');
+          resolve({ success: false, error: '超时：未找到输入框' });
+        }
+      }, 3000);
+    });
   }
 
   /**
@@ -486,14 +531,24 @@
     }
 
     if (action === 'renameStrategyName') {
-      const result = window.jquanAuto.renameStrategyName(event.data.newName);
-      console.log(`[PageBridge] [CMD] renameStrategyName 结果:`, result);
-      window.postMessage({
-        from: 'JQUAN_PAGE_BRIDGE',
-        action: 'renameStrategyNameResponse',
-        requestId: requestId,
-        result: result
-      }, '*');
+      window.jquanAuto.renameStrategyName(event.data.newName).then(result => {
+        console.log(`[PageBridge] [CMD] renameStrategyName 结果:`, result);
+        window.postMessage({
+          from: 'JQUAN_PAGE_BRIDGE',
+          action: 'renameStrategyNameResponse',
+          requestId: requestId,
+          result: result
+        }, '*');
+      }).catch(err => {
+        console.error(`[PageBridge] [CMD] renameStrategyName 异常:`, err);
+        window.postMessage({
+          from: 'JQUAN_PAGE_BRIDGE',
+          action: 'renameStrategyNameResponse',
+          requestId: requestId,
+          result: { success: false, error: err.message || String(err) }
+        }, '*');
+      });
+      return;
     }
 
     if (action === 'setBacktestParams') {
