@@ -214,7 +214,7 @@ async def cmd_push(args):
 
 
 async def cmd_pull_logs(args):
-    """拉取回测日志"""
+    """拉取回测日志（同时拉取错误信息）"""
     async with JQuanClient(WS_URL) as client:
         pull_data = {}
         if args.id:
@@ -222,28 +222,51 @@ async def cmd_pull_logs(args):
         elif args.name:
             pull_data["targetName"] = args.name
 
-        result, error = await client.send_command("pullLogs", pull_data)
-        if error:
-            print(f"[CLI] 失败: {error}")
+        # 同时拉取日志和错误
+        logs_result, logs_error = await client.send_command("pullLogs", pull_data)
+        errors_result, errors_error = await client.send_command("getBacktestErrors", pull_data)
+
+        if logs_error:
+            print(f"[CLI] 拉取日志失败: {logs_error}")
             return False
 
-        logs = result.get("logs") if result else None
-        if not logs:
+        logs = logs_result.get("logs") if logs_result else None
+        has_error = errors_result.get("hasError") if errors_result else False
+        errors = errors_result.get("errors", []) if errors_result else []
+
+        if not logs and not has_error:
             print("[CLI] 暂无日志")
             return True
+
+        # 组装输出内容
+        output_lines = []
+        if logs:
+            output_lines.append("=" * 40)
+            output_lines.append("回测日志")
+            output_lines.append("=" * 40)
+            output_lines.append(logs)
+
+        if has_error and errors:
+            output_lines.append("")
+            output_lines.append("=" * 40)
+            output_lines.append(f"检测到 {len(errors)} 条错误")
+            output_lines.append("=" * 40)
+            for i, err in enumerate(errors, 1):
+                output_lines.append(f"\n--- 错误 {i} ---")
+                output_lines.append(err)
+
+        full_output = "\n".join(output_lines)
 
         # 输出到 stdout 或文件
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
-                f.write(logs)
-            print(f"[CLI] 日志已保存: {args.output} ({len(logs)} 字符)")
+                f.write(full_output)
+            print(f"[CLI] 日志已保存: {args.output} ({len(full_output)} 字符)")
         else:
+            print(full_output)
+            print("")
             print("=" * 40)
-            print("回测日志")
-            print("=" * 40)
-            print(logs)
-            print("=" * 40)
-            print(f"共 {len(logs)} 字符")
+            print(f"共 {len(full_output)} 字符")
         return True
 
 
