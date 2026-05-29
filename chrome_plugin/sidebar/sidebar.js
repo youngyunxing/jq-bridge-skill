@@ -551,13 +551,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateWsStatus();
   connectWebSocket();
 
-  // 监听来自 content script 的就绪信号
+  // 监听来自 content script 的消息
   window.addEventListener('message', (event) => {
-    if (event.data && event.data.from === 'JQUAN_HELPER_CONTENT' &&
-        event.data.action === 'contentScriptReady') {
+    if (!event.data || event.data.from !== 'JQUAN_HELPER_CONTENT') return;
+
+    // 调试：记录所有来自 content script 的消息 action
+    _sidebar_log(`[MSG_RECV] action=${event.data.action}, keys=${Object.keys(event.data || {}).join(',')}`);
+
+    if (event.data.action === 'contentScriptReady') {
       _sidebar_log('收到 content script 就绪信号');
       contentScriptReady = true;
       startCodeMonitoring();
+      return;
+    }
+
+    // 接收 content script 的诊断日志，上报到 bridge
+    if (event.data.action === 'pluginLog') {
+      const { level, tag, msg } = event.data;
+      _sidebar_log(`[PLUGIN_RECV] level=${level}, tag=${tag}, msg=${(msg || '').substring(0, 80)}`);
+      pluginLog(level, tag, msg);
+      return;
     }
   });
 

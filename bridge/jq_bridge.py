@@ -13,7 +13,9 @@ import argparse
 import asyncio
 import json
 import logging
+import logging.handlers
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -45,8 +47,10 @@ def setup_logging():
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
     logger.addHandler(console)
-    # 文件（追加模式）
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8", mode="a")
+    # 文件（轮转模式，单个文件最大 10MB，保留 5 个备份）
+    file_handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, encoding="utf-8", maxBytes=10 * 1024 * 1024, backupCount=5
+    )
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     return logger
@@ -75,7 +79,8 @@ PORT = 19523
 
 # 项目路径
 PROJECT_ROOT = _find_project_root()
-BRIDGE_DIR = os.path.join(PROJECT_ROOT, ".jquan-bridge")
+# 统一 bridge 运行时目录到脚本同级 .jquan-bridge（与 LOG_DIR 一致）
+BRIDGE_DIR = LOG_DIR
 PID_FILE = os.path.join(BRIDGE_DIR, "bridge.pid")
 
 # 便捷打印函数（只调用 logger，logger 已配置同时输出到终端和文件）
@@ -95,9 +100,60 @@ class JQuanBridge:
         self.client_info = {}  # ws -> {strategy_name, algorithm_id, page_url, last_seen}
         self.strategy_map = {}  # strategy_name -> ws（定向推送映射）
         self.request_senders = {}  # cmd_id -> 源 ws（用于定向回传 response）
+        # 策略独立日志目录
+        self.logs_dir = os.path.join(LOG_DIR, "logs")
+        os.makedirs(self.logs_dir, exist_ok=True)
+        # 策略日志 logger 缓存 {safe_name: logger}
+        self._strategy_loggers = {}
         self.app = web.Application()
         self.app.router.add_get("/health", self.handle_health)
         self.app.router.add_get("/ws", self.handle_ws)
+
+    @staticmethod
+    def _safe_strategy_name(name):
+        """将策略名转换为安全的文件名"""
+        if not name:
+            return "unnamed"
+        # 保留中文、字母、数字、下划线、连字符，空格替换为下划线
+        safe = re.sub(r'[^\w\u4e00-\u9fff\-]', '_', name.strip())
+        safe = re.sub(r'_+', '_', safe)
+        return safe.strip('_') or "unnamed"
+
+    def _get_strategy_log_path(self, strategy_name, alg_id):
+        """生成策略日志文件路径"""
+        safe_name = self._safe_strategy_name(strategy_name)
+        short_id = (alg_id or "unknown")[:8]
+        filename = f"{safe_name}_{short_id}.log"
+        return os.path.join(self.logs_dir, filename)
+
+    def _write_strategy_log(self, strategy_name, alg_id, level, msg):
+        """写入策略独立日志文件"""
+        safe_name = self._safe_strategy_name(strategy_name)
+        short_id = (alg_id or "unknown")[:8]
+        cache_key = f"{safe_name}_{short_id}"
+
+        logger = self._strategy_loggers.get(cache_key)
+        if logger is None:
+            logger = logging.getLogger(f"jq_bridge.strategy.{cache_key}")
+            logger.setLevel(logging.INFO)
+            logger.propagate = False  # 阻止日志传播到父 logger（避免重复写入 bridge.log）
+            # 避免重复添加 handler（如果 logger 已存在）
+            if not logger.handlers:
+                log_path = self._get_strategy_log_path(strategy_name, alg_id)
+                handler = logging.FileHandler(log_path, encoding="utf-8", mode="a")
+                handler.setFormatter(logging.Formatter(
+                    "%(asctime)s [%(levelname)s] %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S"
+                ))
+                logger.addHandler(handler)
+            self._strategy_loggers[cache_key] = logger
+
+        if level in ("ERR", "ERROR"):
+            logger.error(msg)
+        elif level == "WARN":
+            logger.warning(msg)
+        else:
+            logger.info(msg)
 
     async def handle_health(self, request):
         """HTTP 健康检查"""
@@ -220,6 +276,15 @@ class JQuanBridge:
             log_error(f"[Bridge] 保存文件失败: {e}")
             return {"success": False, "error": str(e)}
 
+    def _get_client_tag(self, ws):
+        """生成日志前缀，用于区分不同策略页面"""
+        info = self.client_info.get(ws, {})
+        name = info.get("strategy_name") or "unnamed"
+        alg_id = info.get("algorithm_id") or "unknown"
+        # 取 algorithmId 前8位作为短ID，避免日志过长
+        short_id = alg_id[:8] if alg_id != "unknown" else "unknown"
+        return f"[{name}|{short_id}]"
+
     def _update_client_mapping(self, ws, info):
         """更新客户端策略映射"""
         old_info = self.client_info.get(ws)
@@ -240,38 +305,57 @@ class JQuanBridge:
         strategy_name = info.get("strategyName")
         alg_id = info.get("algorithmId") or "unknown"
         tag = "[REG] 更新注册" if is_update else "[REG] 首次注册"
+        short_id = alg_id[:8]
         if strategy_name:
             self.strategy_map[strategy_name] = ws
-            log_info(f"[Bridge] {tag}: '{strategy_name}' -> {alg_id} | map_size={len(self.strategy_map)} clients={len(self.clients)}")
+            log_info(f"[Bridge] {tag}: '{strategy_name}'|{short_id} -> map_size={len(self.strategy_map)} clients={len(self.clients)}")
         else:
-            log_info(f"[Bridge] {tag}: (未命名) -> {alg_id} | map_size={len(self.strategy_map)} clients={len(self.clients)}")
+            log_info(f"[Bridge] {tag}: (未命名)|{short_id} -> map_size={len(self.strategy_map)} clients={len(self.clients)}")
 
-    def _remove_client(self, ws):
-        """清理客户端映射"""
+    def _cleanup_client(self, ws):
+        """统一清理客户端的所有映射和状态（线程安全/协程安全）"""
+        if ws not in self.clients and ws not in self.client_info:
+            return False  # 已经清理过
+
         info = self.client_info.pop(ws, None)
         removed_name = None
+        removed_id = "unknown"
         if info and info.get("strategy_name"):
             name = info["strategy_name"]
             removed_name = name
+            removed_id = info.get("algorithm_id", "unknown")[:8]
             if name in self.strategy_map and self.strategy_map[name] == ws:
                 del self.strategy_map[name]
-        stale_count = len([cid for cid, sender in self.request_senders.items() if sender == ws])
+
         # 清理以该 ws 为源的待处理请求（防止 response 孤儿条目）
         stale_ids = [cid for cid, sender in self.request_senders.items() if sender == ws]
         for cid in stale_ids:
             self.request_senders.pop(cid, None)
+
         self.clients.discard(ws)
-        log_info(f"[Bridge] [DISC] WS断开: '{removed_name or '(未命名)'}' | 清理孤儿条目={stale_count} | clients={len(self.clients)} map={len(self.strategy_map)}")
+        return True, removed_name, removed_id, len(stale_ids)
+
+    def _remove_client(self, ws):
+        """WebSocket 断开时的入口清理"""
+        result = self._cleanup_client(ws)
+        if not result:
+            return
+        _, removed_name, removed_id, stale_count = result
+        tag = f"'{removed_name}'|{removed_id}" if removed_name else f"'(未命名)'|{removed_id}"
+        log_info(f"[Bridge] [DISC] WS断开: {tag} | 清理孤儿条目={stale_count} | clients={len(self.clients)} map={len(self.strategy_map)}")
 
     def _get_target_ws(self, strategy_name=None, algorithm_id=None):
         """根据策略名或 algorithmId 查找目标 WebSocket"""
         if strategy_name and strategy_name in self.strategy_map:
-            log_info(f"[Bridge] [MAP] 名称命中: '{strategy_name}'")
-            return self.strategy_map[strategy_name]
+            target_ws = self.strategy_map[strategy_name]
+            tag = self._get_client_tag(target_ws)
+            log_info(f"[Bridge] [MAP] 名称命中: '{strategy_name}' {tag}")
+            return target_ws
         if algorithm_id:
             for ws, info in self.client_info.items():
                 if info.get("algorithm_id") == algorithm_id:
-                    log_info(f"[Bridge] [MAP] ID命中: {algorithm_id[:16]}... -> '{info.get('strategy_name', '(未命名)')}'")
+                    tag = self._get_client_tag(ws)
+                    log_info(f"[Bridge] [MAP] ID命中: {algorithm_id[:16]}... {tag}")
                     return ws
         return None
 
@@ -289,7 +373,7 @@ class JQuanBridge:
 
     async def handle_ws(self, request):
         """WebSocket 连接处理"""
-        ws = web.WebSocketResponse()
+        ws = web.WebSocketResponse(max_msg_size=16 * 1024 * 1024)
         await ws.prepare(request)
         self.clients.add(ws)
         log_info(f"[Bridge] WS connected, clients: {len(self.clients)}")
@@ -300,31 +384,34 @@ class JQuanBridge:
                     data = json.loads(msg.data)
                     msg_type = data.get("type")
                     action = data.get("action")
-                    log_info(f"[Bridge] WS recv: {msg_type}/{action}")
+                    client_tag = self._get_client_tag(ws)
+                    # 注册消息前 client_tag 可能为 unnamed，但注册后会更新
+                    if msg_type != "register":
+                        log_info(f"[Bridge] {client_tag} WS recv: {msg_type}/{action}")
+                    else:
+                        log_info(f"[Bridge] WS recv: {msg_type}/{action}")
 
                     # 处理注册消息（更新策略映射）
                     if msg_type == "register":
                         self._update_client_mapping(ws, data)
                         continue
 
-                    # 处理插件日志上报
+                    # 处理插件日志上报：写入策略独立日志文件
                     if msg_type == "logReport":
                         logs = data.get("logs", [])
                         client_id = data.get("clientId", "unknown")
                         info = self.client_info.get(ws, {})
                         strategy_name = info.get("strategy_name") or "unnamed"
-                        prefix = f"[PLUGIN:{client_id}:{strategy_name}]"
+                        alg_id = info.get("algorithm_id", "unknown")
+                        # 调试：记录 logReport 详情
+                        if logs:
+                            log_info(f"[Bridge] {client_tag} logReport: clientId={client_id}, logs_count={len(logs)}, first_tag={logs[0].get('tag','')}, first_msg={logs[0].get('msg','')[:60]}")
                         for entry in logs:
                             level = entry.get("level", "INFO")
                             tag = entry.get("tag", "")
                             msg_text = entry.get("msg", "")
-                            log_line = f"{prefix} {tag} {msg_text}".strip()
-                            if level in ("ERR", "ERROR"):
-                                log_error(log_line)
-                            elif level == "WARN":
-                                log_warn(log_line)
-                            else:
-                                log_info(log_line)
+                            log_line = f"[{client_id}] {tag} {msg_text}".strip()
+                            self._write_strategy_log(strategy_name, alg_id, level, log_line)
                         continue
 
                     # 本地策略命令直接处理并回复发送者
@@ -390,9 +477,8 @@ class JQuanBridge:
                         target_ws = self._get_target_ws(target_name, target_id)
 
                         if target_ws:
-                            target_info = self.client_info.get(target_ws, {})
-                            target_display = target_info.get("strategy_name") or target_info.get("algorithm_id", "unknown")[:12]
-                            log_info(f"[Bridge] [FWD] {action} ({cmd_id}) CLI->'{target_display}' | targetName={target_name} targetId={target_id and target_id[:12]}")
+                            target_tag = self._get_client_tag(target_ws)
+                            log_info(f"[Bridge] [FWD] {action} ({cmd_id}) CLI->{target_tag} | targetName={target_name} targetId={target_id and target_id[:12]}")
                             # 记录请求发送者，用于定向回传 response
                             self.request_senders[cmd_id] = ws
                             # 转发命令到目标客户端
@@ -433,15 +519,16 @@ class JQuanBridge:
                         cmd_id = data.get("id")
                         sender_ws = self.request_senders.pop(cmd_id, None) if cmd_id else None
                         action_in_resp = data.get("action", "unknown")
+                        sender_tag = self._get_client_tag(sender_ws) if sender_ws else "[CLI]"
                         if sender_ws and sender_ws in self.clients:
                             try:
                                 await sender_ws.send_str(msg.data)
-                                log_info(f"[Bridge] [RES] {action_in_resp} ({cmd_id}) sidebar->CLI 定向回传成功")
+                                log_info(f"[Bridge] [RES] {action_in_resp} ({cmd_id}) {sender_tag} 定向回传成功")
                                 continue
                             except Exception as e:
-                                log_warn(f"[Bridge] [RES] {action_in_resp} ({cmd_id}) 定向回传失败: {e}, fallback广播")
+                                log_warn(f"[Bridge] [RES] {action_in_resp} ({cmd_id}) {sender_tag} 定向回传失败: {e}, fallback广播")
                         else:
-                            log_warn(f"[Bridge] [RES] {action_in_resp} ({cmd_id}) 无发送者记录(sender={sender_ws is not None}), fallback广播")
+                            log_warn(f"[Bridge] [RES] {action_in_resp} ({cmd_id}) 无发送者记录, fallback广播")
                         # 回传失败则广播
                         await self.broadcast(msg.data)
                         continue
@@ -468,7 +555,8 @@ class JQuanBridge:
             except Exception:
                 dead.add(ws)
         if dead:
-            self.clients -= dead
+            for ws in dead:
+                self._cleanup_client(ws)
             log_warn(f"[Bridge] [BCAST] 广播到 {len(self.clients)} 个客户端, 移除 {len(dead)} 个失效连接")
 
     def _write_pid(self):

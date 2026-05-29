@@ -6,6 +6,9 @@ let sidebarVisible = false;
 let sidebarElement = null;
 let pageEditor = null;
 
+// content_script 诊断日志缓冲区（通过 getBacktestLogs 响应带回）
+let _contentScriptDebugLogs = [];
+
 // ==========================================
 // 注入页面脚本以访问页面 window
 // ==========================================
@@ -36,6 +39,36 @@ injectPageScript();
 // ==========================================
 // ACE Editor 操作
 // ==========================================
+
+/**
+ * 上报诊断日志到 sidebar，由 sidebar 的 pluginLog 机制发送到 bridge
+ */
+function reportLogToSidebar(level, tag, message) {
+  // 同时存入本地缓冲区，确保通过 getBacktestLogs 响应带回
+  const entry = `[${new Date().toLocaleTimeString()}] [${level || 'INFO'}] ${tag || ''} ${String(message).substring(0, 200)}`;
+  _contentScriptDebugLogs.push(entry);
+  if (_contentScriptDebugLogs.length > 2048) {
+    _contentScriptDebugLogs.shift();
+  }
+
+  const iframe = document.getElementById('jquan-helper-iframe');
+  if (!iframe || !iframe.contentWindow) {
+    console.error('[ContentScript] [pluginLog] iframe 不存在，无法上报:', tag, message);
+    return;
+  }
+  try {
+    iframe.contentWindow.postMessage({
+      from: 'JQUAN_HELPER_CONTENT',
+      action: 'pluginLog',
+      level: level || 'INFO',
+      tag: tag || '',
+      msg: String(message)
+    }, '*');
+    console.log('[ContentScript] [pluginLog] 已上报:', tag, message.substring(0, 60));
+  } catch (e) {
+    console.error('[ContentScript] [pluginLog] 上报失败:', e);
+  }
+}
 
 /**
  * 通过 postMessage 向页面脚本请求编辑器代码
@@ -220,49 +253,79 @@ function isUIElement(text) {
  */
 async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
   const seenLines = new Map();
+  const debugInfo = [];
 
-  function collectLogs() {
+  function logDebug(msg) {
+    debugInfo.push(msg);
+    console.log('[ContentScript] [LOGS] ' + msg);
+    reportLogToSidebar('INFO', '[LOGS]', msg);
+  }
+
+  function collectLogs(label) {
     const selectors = ['.log-line', '.log-item', '.line', '.log-row', '#log > pre > p', 'p', '.output-line'];
     let lines;
+    let matchedSelector = null;
     for (const selector of selectors) {
       lines = contentContainer.querySelectorAll(selector);
-      if (lines.length > 0) break;
+      if (lines.length > 0) {
+        matchedSelector = selector;
+        break;
+      }
     }
-    if (!lines || lines.length === 0) lines = contentContainer.children;
+    const isFallback = !lines || lines.length === 0;
+    if (isFallback) lines = contentContainer.children;
 
+    let newCount = 0;
     for (const line of lines) {
       const text = (line.innerText || line.textContent || '').trim();
       if (text && text.length > 5 && !seenLines.has(text)) {
         seenLines.set(text, true);
+        newCount++;
       }
     }
+    return { total: lines.length, newCount, matchedSelector, isFallback };
   }
 
-  // 阶段1: 反复滚动到底部触发加载
+  logDebug(`容器初始: scrollHeight=${scrollContainer.scrollHeight}, clientHeight=${scrollContainer.clientHeight}, scrollTop=${scrollContainer.scrollTop}`);
+
+  // 阶段1: 反复滚动到底部
+  // 结束条件：连续3次滚动后 scrollHeight 和收集到的日志数都不再变化
   let lastScrollHeight = scrollContainer.scrollHeight;
+  let lastSeenCount = seenLines.size;
   let stableCount = 0;
   let scrollAttempts = 0;
 
-  while (scrollAttempts < 50 && stableCount < 3) {
+  while (stableCount < 3) {
+    scrollAttempts++;
     const beforeCount = seenLines.size;
+    const result = collectLogs(`阶段1#${scrollAttempts}`);
+    logDebug(`阶段1#${scrollAttempts} 收集前: ${beforeCount}条, selector=${result.matchedSelector}, fallback=${result.isFallback}, lines=${result.total}, new=${result.newCount}`);
+
     scrollContainer.scrollTop = scrollContainer.scrollHeight;
     await sleep(150);
-    collectLogs();
 
+    const afterResult = collectLogs(`阶段1#${scrollAttempts}-after`);
     const currentScrollHeight = scrollContainer.scrollHeight;
-    if (seenLines.size > beforeCount || currentScrollHeight > lastScrollHeight + 10) {
-      lastScrollHeight = currentScrollHeight;
-      stableCount = 0;
-    } else {
+    const currentSeenCount = seenLines.size;
+    logDebug(`阶段1#${scrollAttempts} 滚动后: scrollTop=${scrollContainer.scrollTop}, scrollHeight=${currentScrollHeight}, new=${afterResult.newCount}, total=${currentSeenCount}`);
+
+    // 只有当 scrollHeight 和已收集日志数都完全不变时，才认为稳定
+    if (currentScrollHeight === lastScrollHeight && currentSeenCount === lastSeenCount) {
       stableCount++;
+      logDebug(`阶段1#${scrollAttempts} 稳定计数: ${stableCount}/3 (scrollHeight=${currentScrollHeight}, seen=${currentSeenCount})`);
+    } else {
+      lastScrollHeight = currentScrollHeight;
+      lastSeenCount = currentSeenCount;
+      stableCount = 0;
+      logDebug(`阶段1#${scrollAttempts} 发现变化，稳定计数重置 (scrollHeight=${currentScrollHeight}, seen=${currentSeenCount})`);
     }
-    scrollAttempts++;
   }
+  logDebug(`阶段1结束: 共${scrollAttempts}次滚动, 收集${seenLines.size}条日志`);
 
   // 阶段2: 逐步向上滚动确保收集完整
   scrollContainer.scrollTop = 0;
   await sleep(200);
-  collectLogs();
+  collectLogs('阶段2-顶部');
 
   const scrollStep = Math.max(scrollContainer.clientHeight * 0.8, 100);
   let currentScroll = 0;
@@ -270,10 +333,15 @@ async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
   const maxUpwardAttempts = Math.min(Math.ceil(scrollContainer.scrollHeight / scrollStep) + 10, 100);
 
   while (upwardAttempts < maxUpwardAttempts) {
+    const beforeCount = seenLines.size;
     currentScroll += scrollStep;
     scrollContainer.scrollTop = Math.min(currentScroll, scrollContainer.scrollHeight);
     await sleep(100);
-    collectLogs();
+    const result = collectLogs(`阶段2#${upwardAttempts + 1}`);
+
+    if (result.newCount > 0) {
+      logDebug(`阶段2#${upwardAttempts + 1}: scrollTop=${scrollContainer.scrollTop}, new=${result.newCount}, total=${seenLines.size}`);
+    }
 
     if (scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50) {
       break;
@@ -281,7 +349,10 @@ async function autoScrollAndCollectLogs(scrollContainer, contentContainer) {
     upwardAttempts++;
   }
 
-  return Array.from(seenLines.keys()).join('\n');
+  return {
+    logs: Array.from(seenLines.keys()).join('\n'),
+    debugInfo: debugInfo.join('\n')
+  };
 }
 
 /**
@@ -301,10 +372,10 @@ async function getBacktestLogs() {
     const dailyLogsContainer = document.querySelector('#daily-logs-tab #daily-logs-container');
 
     if (dailyLogsContainer && dailyLogsContainer.scrollHeight > dailyLogsContainer.clientHeight) {
-      return {
-        logs: await autoScrollAndCollectLogs(dailyLogsContainer, dailyLogsContainer),
-        debugInfo: { source: 'daily-logs-container' }
-      };
+      const result = await autoScrollAndCollectLogs(dailyLogsContainer, dailyLogsContainer);
+      const debugInfo = { source: 'daily-logs-container', scrollDebug: result.debugInfo, contentScriptLogs: _contentScriptDebugLogs.slice() };
+      _contentScriptDebugLogs.length = 0;
+      return { logs: result.logs, debugInfo };
     }
 
     // 备选：查找其他日志容器（尽量获取所有内容，不再区分正常/错误）
@@ -328,23 +399,27 @@ async function getBacktestLogs() {
       // 只要不是纯UI元素，就尝试获取
       if (!isUIElement(text) && text.trim().length > 10) {
         if (el.scrollHeight > el.clientHeight + 50) {
-          return {
-            logs: await autoScrollAndCollectLogs(el, el),
-            debugInfo: { source: selector }
-          };
+          const result = await autoScrollAndCollectLogs(el, el);
+          const debugInfo = { source: selector, scrollDebug: result.debugInfo, contentScriptLogs: _contentScriptDebugLogs.slice() };
+          _contentScriptDebugLogs.length = 0;
+          return { logs: result.logs, debugInfo };
         }
         // 无滚动条但内容多，直接获取
-        return {
-          logs: text.trim(),
-          debugInfo: { source: selector, direct: true }
-        };
+        const debugInfo = { source: selector, direct: true, contentScriptLogs: _contentScriptDebugLogs.slice() };
+        _contentScriptDebugLogs.length = 0;
+        return { logs: text.trim(), debugInfo };
       }
     }
 
-    return { logs: null, debugInfo: { error: '未找到日志容器' } };
+    const debugInfo = { error: '未找到日志容器', contentScriptLogs: _contentScriptDebugLogs.slice() };
+    _contentScriptDebugLogs.length = 0;
+    return { logs: null, debugInfo };
   } catch (error) {
     console.error('[ContentScript] [ERR] 获取日志失败:', error);
-    return { logs: null, debugInfo: { error: error.message } };
+    reportLogToSidebar('ERR', '[LOGS]', '获取日志失败: ' + String(error));
+    const debugInfo = { error: error.message, contentScriptLogs: _contentScriptDebugLogs.slice() };
+    _contentScriptDebugLogs.length = 0;
+    return { logs: null, debugInfo };
   }
 }
 
@@ -523,6 +598,7 @@ window.addEventListener('message', async (event) => {
       return;
     }
     console.log(`[ContentScript] [CMD] 收到 sidebar 请求: ${action} (reqId=${requestId})`);
+    reportLogToSidebar('INFO', '[CMD]', `收到请求: ${action}`);
 
     // 处理 copyToClipboard 请求
     if (action === 'copyToClipboard') {
@@ -583,6 +659,7 @@ window.addEventListener('message', async (event) => {
     if (action === 'getBacktestLogs') {
       const result = await getBacktestLogs();
       console.log(`[ContentScript] [RES] getBacktestLogs 响应: length=${result?.logs ? result.logs.length : 0}`);
+      reportLogToSidebar('INFO', '[RES]', `getBacktestLogs 响应: length=${result?.logs ? result.logs.length : 0}`);
 
       iframe.contentWindow.postMessage({
         from: 'JQUAN_HELPER_CONTENT',

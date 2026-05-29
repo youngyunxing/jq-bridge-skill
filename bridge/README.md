@@ -175,47 +175,87 @@ python3 -m venv .venv
 
 ## 查看诊断日志
 
-所有日志写入 `.jquan-bridge/bridge.log`，按标签过滤查看：
+日志分为两类，分别存放在不同位置：
+
+1. **`bridge.log`** — bridge 自身操作日志（连接、转发、响应、错误）
+2. **`logs/策略名_算法ID.log`** — 每个策略页面的插件诊断日志（sidebar + content_script 上报）
 
 ```bash
-# 查看全部日志（最近 50 行）
-tail -50 .jquan-bridge/bridge.log
+# bridge 自身日志（最近 50 行）
+tail -50 skills/jq-bridge/.jquan-bridge/bridge.log
 
 # 只看连接/断开
-grep '\[CONN\]' .jquan-bridge/bridge.log
+grep '\[DISC\]' skills/jq-bridge/.jquan-bridge/bridge.log
 
 # 只看注册/映射更新
-grep '\[REG\]' .jquan-bridge/bridge.log
+grep '\[REG\]' skills/jq-bridge/.jquan-bridge/bridge.log
 
 # 只看命令转发
-grep '\[FWD\]' .jquan-bridge/bridge.log
+grep '\[FWD\]' skills/jq-bridge/.jquan-bridge/bridge.log
 
 # 只看 response 回传
-grep '\[RES\]' .jquan-bridge/bridge.log
+grep '\[RES\]' skills/jq-bridge/.jquan-bridge/bridge.log
 
 # 只看错误
-grep '\[ERR\]' .jquan-bridge/bridge.log
-
-# 只看插件上报日志（sidebar 自动上报）
-grep '\[PLUGIN\]' .jquan-bridge/bridge.log
-
-# 追踪某个页面的插件日志（按 clientId）
-grep '\[PLUGIN:a1b2c3\]' .jquan-bridge/bridge.log
+grep '\[ERR\]' skills/jq-bridge/.jquan-bridge/bridge.log
 
 # 追踪一次完整 push 流程（按 cmd_id）
-grep 'a1b2c3d4' .jquan-bridge/bridge.log
+grep 'a1b2c3d4' skills/jq-bridge/.jquan-bridge/bridge.log
+```
+
+### 策略独立日志（插件诊断）
+
+每个策略页面有独立的日志文件，按策略名 + 算法ID前8位命名：
+
+```bash
+# 查看某个策略的插件诊断日志
+ls skills/jq-bridge/.jquan-bridge/logs/
+# 输出: 红利小市值_框架版_72ceab5d.log  极简股息率小市值_3855990c.log  ...
+
+# 实时查看某策略的插件日志
+tail -f skills/jq-bridge/.jquan-bridge/logs/红利小市值_框架版_72ceab5d.log
+
+# 查看某策略的 content_script 滚动诊断
+grep '\[LOGS\]' skills/jq-bridge/.jquan-bridge/logs/红利小市值_框架版_72ceab5d.log
+
+# 查看某策略的命令处理日志
+grep '\[CMD\]' skills/jq-bridge/.jquan-bridge/logs/红利小市值_框架版_72ceab5d.log
+```
+
+### 日志前缀说明
+
+**bridge.log** 中的每条日志自带策略标识前缀 `[策略名|算法ID前8位]`：
+
+```
+2025-05-29 15:21:00 [INFO] [Bridge] [FWD] pullLogs (dd2e170e) CLI->[红利小市值_框架版|72ceab5d] ...
+2025-05-29 15:21:00 [INFO] [Bridge] [DISC] WS断开: '红利小市值_框架版'|72ceab5d
+```
+
+**策略独立日志** 中的格式：`[clientId] tag message`
+
+```
+2025-05-29 15:21:01 [INFO] [sb-a1b2c3] [LOGS] 容器初始: scrollHeight=114769...
+2025-05-29 15:21:01 [INFO] [sb-a1b2c3] [CMD] 收到请求: getBacktestLogs
 ```
 
 ### 日志时间戳说明
 
-- **bridge 日志**（`.jquan-bridge/bridge.log`）：Python logging 自动包含 `YYYY-MM-DD HH:MM:SS` 完整时间戳
+- **bridge 日志**（`skills/jq-bridge/.jquan-bridge/bridge.log`）：Python logging 自动包含 `YYYY-MM-DD HH:MM:SS` 完整时间戳
 - **CLI 输出**：关键诊断日志带 `[HH:MM:SS]` 时间前缀，交互输出（如表格、日志内容）不带前缀
-- **插件日志**（Chrome DevTools 控制台）：浏览器 `console.log` 自动显示时间，无需额外添加
+- **插件日志**：sidebar 和 content_script 的关键日志会通过 WebSocket 自动上报到 bridge.log，按 `[PLUGIN:clientId:策略名|ID]` 前缀区分
 
 ### Chrome 插件日志查看方法
 
-插件日志在浏览器端，不在 `.jquan-bridge/bridge.log` 中，需要通过 Chrome 开发者工具查看：
+**推荐：直接查看 bridge.log**（插件日志已自动上报）：
+```bash
+# 实时查看所有插件诊断日志
+tail -f skills/jq-bridge/.jquan-bridge/bridge.log | grep '\[PLUGIN\]'
 
+# 查看某个策略的 content_script 滚动诊断日志
+grep '\[PLUGIN\]' skills/jq-bridge/.jquan-bridge/bridge.log | grep '红利小市值_框架版'
+```
+
+**备用：Chrome DevTools 控制台**（实时调试，不持久化）：
 ```bash
 # 方法1: 聚宽页面右键 → 检查 → Console 标签页
 # 过滤 ContentScript 日志:

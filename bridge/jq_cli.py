@@ -66,13 +66,22 @@ class JQuanClient:
 
     async def __aenter__(self):
         print(f"[CLI] 连接桥接服务: {self.url}")
-        try:
-            self.ws = await websockets.connect(self.url)
-        except Exception as e:
-            print(f"[CLI] 连接失败: {e}")
-            print("[CLI] 请确保桥接服务已启动: .venv/bin/python bridge/jq_bridge.py start")
-            raise
-        return self
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                self.ws = await websockets.connect(self.url, max_size=16 * 1024 * 1024)
+                if attempt > 1:
+                    print(f"[CLI] 第 {attempt} 次连接成功")
+                return self
+            except Exception as e:
+                last_error = e
+                print(f"[CLI] 第 {attempt} 次连接失败: {e}")
+                if attempt < 3:
+                    wait = 2 ** (attempt - 1)
+                    print(f"[CLI] 等待 {wait}s 后重试...")
+                    await asyncio.sleep(wait)
+        print("[CLI] 请确保桥接服务已启动: .venv/bin/python bridge/jq_bridge.py start")
+        raise last_error
 
     async def __aexit__(self, *args):
         if self.ws:
@@ -231,11 +240,14 @@ async def cmd_pull_logs(args):
             return False
 
         logs = logs_result.get("logs") if logs_result else None
+        debug_info = logs_result.get("debugInfo") if logs_result else None
         has_error = errors_result.get("hasError") if errors_result else False
         errors = errors_result.get("errors", []) if errors_result else []
 
         if not logs and not has_error:
             print("[CLI] 暂无日志")
+            if debug_info:
+                print(f"[CLI] debugInfo: {json.dumps(debug_info, ensure_ascii=False)[:500]}")
             return True
 
         # 组装输出内容
@@ -256,6 +268,21 @@ async def cmd_pull_logs(args):
                 output_lines.append(err)
 
         full_output = "\n".join(output_lines)
+
+        # 输出滚动诊断信息
+        if debug_info:
+            scroll_debug = debug_info.get("scrollDebug")
+            if scroll_debug:
+                print("[CLI] 滚动诊断:")
+                for line in str(scroll_debug).split("\n")[:30]:
+                    print(f"  {line}")
+            content_script_logs = debug_info.get("contentScriptLogs")
+            if content_script_logs:
+                print("[CLI] content_script 诊断日志:")
+                for line in content_script_logs[-50:]:
+                    print(f"  {line}")
+            elif not scroll_debug:
+                print(f"[CLI] debugInfo: {json.dumps(debug_info, ensure_ascii=False)[:500]}")
 
         # 输出到 stdout 或文件
         if args.output:
